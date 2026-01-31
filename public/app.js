@@ -35,6 +35,10 @@ function renderGames(games) {
   });
 }
 
+function isLiveGame(game) {
+  return game && game.status === 'active';
+}
+
 function renderLeaderboard(leaderboard) {
   const container = document.getElementById('leaderboard');
   container.innerHTML = '';
@@ -137,11 +141,12 @@ async function selectGame(gameId) {
 
 async function refresh() {
   const [games, leaderboard] = await Promise.all([fetchGames(), fetchLeaderboard()]);
-  renderGames(games);
+  const liveGames = games.filter(isLiveGame);
+  renderGames(liveGames);
   renderLeaderboard(leaderboard);
 
-  if (!currentGameId && games.length) {
-    await selectGame(games[0].id);
+  if (!currentGameId && liveGames.length) {
+    await selectGame(liveGames[0].id);
   } else if (currentGameId) {
     const current = games.find(g => g.id === currentGameId);
     if (current && board) {
@@ -150,7 +155,7 @@ async function refresh() {
     }
   }
 
-  setStatus(`Live games: ${games.length} • Updated ${new Date().toLocaleTimeString()}`);
+  setStatus(`Live games: ${liveGames.length} • Updated ${new Date().toLocaleTimeString()}`);
 }
 
 window.addEventListener('load', () => {
