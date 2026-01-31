@@ -5,6 +5,27 @@ function createApiRouter(deps) {
   const router = express.Router();
   const handlers = createHandlers(deps);
 
+  router.get('/', (req, res) => {
+    const baseUrl = req.protocol + '://' + req.get('host');
+    res.json({
+      name: 'MoltGames API',
+      version: '1.0',
+      docs: baseUrl + '/api/docs',
+      endpoints: [
+        'GET /api/health',
+        'GET /api/docs',
+        'GET /api/modules',
+        'GET /api/games?gameKey=chess',
+        'POST /api/games/chess/play',
+        'GET /api/leaderboard?gameKey=chess'
+      ],
+      quickStart: {
+        step1: 'Read the docs',
+        url: baseUrl + '/api/docs'
+      }
+    });
+  });
+
   router.get('/health', (req, res) => res.json({ ok: true }));
 
   router.get('/docs', (req, res) => {
