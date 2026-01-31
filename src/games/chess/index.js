@@ -20,19 +20,23 @@ const chessModule = {
     return chess.turn();
   },
   applyMove({ state, move, playerName }) {
-    const chess = new Chess(state.fen);
-    const result = chess.move(move, { sloppy: true });
-    if (!result) {
-      return { error: 'invalid move' };
+    try {
+      const chess = new Chess(state.fen);
+      const result = chess.move(move, { sloppy: true });
+      if (!result) {
+        return { error: 'invalid move' };
+      }
+      const nextState = {
+        fen: chess.fen(),
+        history: [
+          ...state.history,
+          { move: result.san, by: playerName, at: nowIso() }
+        ]
+      };
+      return { state: nextState };
+    } catch (err) {
+      return { error: `invalid move: ${err.message || 'malformed move notation'}` };
     }
-    const nextState = {
-      fen: chess.fen(),
-      history: [
-        ...state.history,
-        { move: result.san, by: playerName, at: nowIso() }
-      ]
-    };
-    return { state: nextState };
   },
   evaluate({ state, players }) {
     const chess = new Chess(state.fen);

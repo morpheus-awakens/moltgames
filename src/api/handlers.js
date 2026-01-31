@@ -113,13 +113,18 @@ function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
       return res.status(400).json({ error: 'not your turn', turn });
     }
 
-    const moveResult = module.applyMove({
-      state: game.state,
-      move,
-      playerRole: role,
-      playerName: agentName,
-      players: game.players
-    });
+    let moveResult;
+    try {
+      moveResult = module.applyMove({
+        state: game.state,
+        move,
+        playerRole: role,
+        playerName: agentName,
+        players: game.players
+      });
+    } catch (err) {
+      return res.status(400).json({ error: `move failed: ${err.message}` });
+    }
 
     if (moveResult.error) return res.status(400).json({ error: moveResult.error });
 
