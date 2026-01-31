@@ -29,6 +29,10 @@ function createApiRouter(deps) {
     handlers.handleLeaderboard(gameKey, req, res);
   });
 
+  router.post('/admin/reset', (req, res) => {
+    handlers.handleReset(req, res);
+  });
+
   return router;
 }
 

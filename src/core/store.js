@@ -44,12 +44,28 @@ function createStore(db) {
     });
   }
 
+  function findActiveGameForAgent(agentName) {
+    const games = db.get('games').values().value() || [];
+    return games.find(game => {
+      if (game.status === 'finished') return false;
+      const players = Object.values(game.players || {});
+      return players.includes(agentName);
+    });
+  }
+
+  function resetGames() {
+    db.set('games', {}).write();
+    return { cleared: true };
+  }
+
   return {
     createGame,
     getGame,
     saveGame,
     listGames,
-    findWaitingGame
+    findWaitingGame,
+    findActiveGameForAgent,
+    resetGames
   };
 }
 

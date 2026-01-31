@@ -54,6 +54,23 @@ function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
     if (error) return res.status(404).json({ error });
 
     if (!gameId) {
+      // Check if agent already has an active game
+      const existingGame = store.findActiveGameForAgent(agentName);
+      if (existingGame) {
+        const role = Object.keys(existingGame.players || {}).find(key => existingGame.players[key] === agentName);
+        return res.json({
+          matched: true,
+          gameId: existingGame.id,
+          gameKey: existingGame.gameKey || gameKey,
+          role,
+          status: existingGame.status,
+          players: existingGame.players,
+          state: module.getPublicState(existingGame.state),
+          fen: existingGame.state && existingGame.state.fen,
+          existing: true
+        });
+      }
+
       const { game, role } = matchOrCreate({
         gameKey,
         module,
@@ -150,11 +167,17 @@ function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
     res.json({ leaderboard: board });
   }
 
+  function handleReset(req, res) {
+    const result = store.resetGames();
+    res.json({ reset: true, ...result });
+  }
+
   return {
     handlePlay,
     handleListGames,
     handleGetGame,
-    handleLeaderboard
+    handleLeaderboard,
+    handleReset
   };
 }
 
