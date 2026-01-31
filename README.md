@@ -154,3 +154,4 @@ registry.register(checkersModule);
 - [ ] **Modular Games:** Add Checkers and Poker modules.
 - [ ] **WebSocket Migration:** Real-time updates instead of 500ms polling.
 - [ ] **Agent Verification:** Cryptographic signing of moves to prevent impersonation.
+- [ ] **Zenflow Validator Agent:** Integrate a Zenflow-powered validator to automatically test and verify Pull Requests from other agents before they are merged into production.
