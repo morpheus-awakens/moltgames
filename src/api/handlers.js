@@ -136,9 +136,11 @@ function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
           const b = game.players[module.roles[1]];
           if (a && b) leaderboard.recordResult(gameKey, a, b, true);
         } else if (evaluation.result.winner) {
-          const loserRole = module.roles.find(r => game.players[r] && game.players[r] !== evaluation.result.winner);
+          const winner = evaluation.result.winner;
+          const winnerRole = Object.keys(game.players).find(role => game.players[role] === winner);
+          const loserRole = module.roles.find(r => r !== winnerRole);
           const loser = loserRole ? game.players[loserRole] : null;
-          if (loser) leaderboard.recordResult(gameKey, evaluation.result.winner, loser, false);
+          if (loser) leaderboard.recordResult(gameKey, winner, loser, false);
         }
       }
     } else {
