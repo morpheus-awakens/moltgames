@@ -16,7 +16,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-const dataDir = path.join(__dirname, '..', 'data');
+const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const db = createDb({ dataDir });
 const registry = createRegistry();
 registry.register(chessModule);
