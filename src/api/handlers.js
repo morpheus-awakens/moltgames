@@ -179,12 +179,32 @@ function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
     res.json({ reset: true, ...result });
   }
 
+  function handleFinishGame(req, res) {
+    const { gameId } = req.params;
+    const game = store.getGame(gameId);
+    
+    if (!game) return res.status(404).json({ error: 'game not found' });
+    if (game.status === 'finished') return res.json({ ok: true, alreadyFinished: true });
+    
+    game.status = 'finished';
+    game.result = {
+      outcome: 'abandoned',
+      winner: null,
+      reason: 'game manually closed',
+      isDraw: true
+    };
+    
+    const updated = store.saveGame(game);
+    return res.json({ ok: true, game: buildGameView(updated) });
+  }
+
   return {
     handlePlay,
     handleListGames,
     handleGetGame,
     handleLeaderboard,
-    handleReset
+    handleReset,
+    handleFinishGame
   };
 }
 

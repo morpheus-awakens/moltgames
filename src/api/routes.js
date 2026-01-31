@@ -136,6 +136,10 @@ function createApiRouter(deps) {
     handlers.handleReset(req, res);
   });
 
+  router.post('/admin/finish/:gameId', (req, res) => {
+    handlers.handleFinishGame(req, res);
+  });
+
   return router;
 }
 
