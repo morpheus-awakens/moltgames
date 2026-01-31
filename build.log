@@ -1,0 +1,4783 @@
+OpenAI Codex v0.92.0 (research preview)
+--------
+workdir: /Users/morpheusawakens/clawd/projects/openclaw-chess
+model: gpt-5.2-codex
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: none
+reasoning summaries: auto
+session id: 019c12fb-7053-7303-a562-bbe541184467
+--------
+user
+Build a version 1.0 chess website called OpenClaw Chess. 
+
+Requirements:
+1. Node.js/Express backend.
+2. Use chess.js for game logic and move validation.
+3. Use lowdb for a persistent leaderboard and game history.
+4. Simple frontend (index.html) using chessboardjs to show live games and leaderboard.
+5. A REST API endpoint POST /play that accepts { gameId, move, agentName }.
+6. Matching logic: If an agent POSTs to /play without a gameId, match them with the first available 'waiting' player or create a new game state.
+
+When completely finished and the server is running on port 3000, run this command to notify me:
+openclaw gateway wake --text "Done: OpenClaw Chess 1.0 is live on port 3000. Leaderboard and API are ready for agents." --mode now
+mcp startup: no servers
+exec
+/bin/zsh -lc ls in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 52ms:
+build.log
+exec
+/bin/zsh -lc 'cat build.log' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 52ms:
+OpenAI Codex v0.92.0 (research preview)
+--------
+workdir: /Users/morpheusawakens/clawd/projects/openclaw-chess
+model: gpt-5.2-codex
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: none
+reasoning summaries: auto
+session id: 019c12fb-7053-7303-a562-bbe541184467
+--------
+user
+Build a version 1.0 chess website called OpenClaw Chess. 
+
+Requirements:
+1. Node.js/Express backend.
+2. Use chess.js for game logic and move validation.
+3. Use lowdb for a persistent leaderboard and game history.
+4. Simple frontend (index.html) using chessboardjs to show live games and leaderboard.
+5. A REST API endpoint POST /play that accepts { gameId, move, agentName }.
+exec
+/bin/zsh -lc 'mkdir -p /Users/morpheusawakens/clawd/projects/openclaw-chess/public /Users/morpheusawakens/clawd/projects/openclaw-chess/data' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat > /Users/morpheusawakens/clawd/projects/openclaw-chess/package.json <<'EOF'
+{
+  \"name\": \"openclaw-chess\",
+  \"version\": \"1.0.0\",
+  \"description\": \"OpenClaw Chess 1.0\",
+  \"main\": \"server.js\",
+  \"scripts\": {
+    \"start\": \"node server.js\"
+  },
+  \"dependencies\": {
+    \"chess.js\": \""'^1.0.0",
+    "express": "''^4.19.2",
+    "lowdb": "''^1.0.0"
+  }
+}
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat > /Users/morpheusawakens/clawd/projects/openclaw-chess/server.js <<'EOF'
+const path = require('path');
+const express = require('express');
+const { Chess } = require('chess.js');
+const low = require('lowdb');
+const FileSync = require('lowdb/adapters/FileSync');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+const db = low(adapter);
+
+db.defaults({ games: {}, leaderboard: {} }).write();
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function generateId() {
+  return "'`g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getLeaderboardEntry(name) {
+  const entry = db.get('"'leaderboard').get(name).value();
+  if (entry) return entry;
+  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+  db.get('leaderboard').set(name, fresh).write();
+  return fresh;
+}
+
+function recordResult(winnerName, loserName, isDraw) {
+  if (isDraw) {
+    const a = getLeaderboardEntry(winnerName);
+    const b = getLeaderboardEntry(loserName);
+    a.draws += 1; a.games += 1;
+    b.draws += 1; b.games += 1;
+    db.get('leaderboard').set(winnerName, a).write();
+    db.get('leaderboard').set(loserName, b).write();
+    return;
+  }
+  const win = getLeaderboardEntry(winnerName);
+  const loss = getLeaderboardEntry(loserName);
+  win.wins += 1; win.games += 1;
+  loss.losses += 1; loss.games += 1;
+  db.get('leaderboard').set(winnerName, win).write();
+  db.get('leaderboard').set(loserName, loss).write();
+}
+
+function createGame(firstPlayerName) {
+  const chess = new Chess();
+  const id = generateId();
+  const game = {
+    id,
+    status: 'waiting',
+    players: { w: firstPlayerName, b: null },
+    fen: chess.fen(),
+    history: [],
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    result: null
+  };
+  db.get('games').set(id, game).write();
+  return game;
+}
+
+function findWaitingGame(excludeName) {
+  const games = db.get('games').values().value();
+  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w "'!== excludeName);
+}
+
+function getGame(id) {
+  return db.get('"'games').get(id).value();
+}
+
+function saveGame(game) {
+  game.updatedAt = nowIso();
+  db.get('games').set(game.id, game).write();
+}
+
+app.post('/play', (req, res) => {
+  const { gameId, move, agentName } = req.body || {};
+
+  if ("'!agentName || typeof agentName !== '"'string') {
+    return res.status(400).json({ error: 'agentName is required' });
+  }
+
+  // Matchmaking path
+  if ("'!gameId) {
+    const waiting = findWaitingGame(agentName);
+    let game = waiting;
+    let side = '"'w';
+
+    if (game) {
+      if ("'!game.players.b) {
+        game.players.b = agentName;
+        side = '"'b';
+      } else if ("'!game.players.w) {
+        game.players.w = agentName;
+        side = '"'w';
+      }
+      game.status = 'active';
+      saveGame(game);
+    } else {
+      game = createGame(agentName);
+      side = 'w';
+    }
+
+    return res.json({
+      matched: true,
+      gameId: game.id,
+      side,
+      status: game.status,
+      fen: game.fen,
+      players: game.players
+    });
+  }
+
+  const game = getGame(gameId);
+  if ("'!game) return res.status(404).json({ error: '"'game not found' });
+
+  if ("'!move) {
+    return res.json({
+      gameId: game.id,
+      status: game.status,
+      fen: game.fen,
+      players: game.players,
+      history: game.history,
+      result: game.result
+    });
+  }
+
+  if (game.status === '"'finished') {
+    return res.status(400).json({ error: 'game already finished', result: game.result });
+  }
+
+  const chess = new Chess(game.fen);
+
+  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+  if ("'!agentSide) return res.status(400).json({ error: '"'agent is not part of this game' });
+
+  if (game.status === 'waiting') {
+    return res.status(400).json({ error: 'waiting for opponent' });
+  }
+
+  if (chess.turn() "'!== agentSide) {
+    return res.status(400).json({ error: '"'not your turn', turn: chess.turn() });
+  }
+
+  const result = chess.move(move, { sloppy: true });
+  if ("'!result) return res.status(400).json({ error: '"'invalid move' });
+
+  game.fen = chess.fen();
+  game.history.push({
+    move: result.san,
+    by: agentName,
+    at: nowIso()
+  });
+
+  if (chess.isGameOver()) {
+    let outcome = 'draw';
+    let winner = null;
+    let reason = 'draw';
+
+    if (chess.isCheckmate()) {
+      outcome = 'checkmate';
+      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+      winner = game.players[winnerSide];
+      reason = 'checkmate';
+      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+      if (winner && loser) recordResult(winner, loser, false);
+    } else {
+      const a = game.players.w;
+      const b = game.players.b;
+      if (a && b) recordResult(a, b, true);
+    }
+
+    game.status = 'finished';
+    game.result = { outcome, winner, reason };
+  }
+
+  saveGame(game);
+
+  return res.json({
+    ok: true,
+    gameId: game.id,
+    fen: game.fen,
+    status: game.status,
+    history: game.history,
+    result: game.result
+  });
+});
+
+app.get('/games', (req, res) => {
+  const games = db.get('games').values().value().map(g => ({
+    id: g.id,
+    status: g.status,
+    players: g.players,
+    fen: g.fen,
+    updatedAt: g.updatedAt,
+    result: g.result
+  }));
+  res.json({ games });
+});
+
+app.get('/leaderboard', (req, res) => {
+  const board = db.get('leaderboard').values().value();
+  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+  res.json({ leaderboard: board });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("'`OpenClaw Chess 1.0 running on port ${PORT}`);
+});
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat > /Users/morpheusawakens/clawd/projects/openclaw-chess/public/index.html <<'EOF'
+<"'!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenClaw Chess 1.0</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="brand">
+        <h1>OpenClaw Chess</h1>
+        <p>Live games, persistent leaderboard, and agent-ready API.</p>
+      </div>
+      <div class="status" id="status">Loading...</div>
+    </header>
+
+    <main>
+      <section class="board-panel">
+        <div id="board" class="board"></div>
+        <div class="board-meta">
+          <div id="gameTitle">Select a game to watch</div>
+          <div id="gameInfo"></div>
+        </div>
+      </section>
+
+      <section class="side-panel">
+        <div class="panel">
+          <h2>Live Games</h2>
+          <div id="games" class="list"></div>
+        </div>
+        <div class="panel">
+          <h2>Leaderboard</h2>
+          <div id="leaderboard" class="list"></div>
+        </div>
+        <div class="panel">
+          <h2>API</h2>
+          <pre class="api">POST /play
+{
+  "gameId": "optional",
+  "move": "e2e4 or SAN",
+  "agentName": "AgentX"
+}</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat > /Users/morpheusawakens/clawd/projects/openclaw-chess/public/styles.css <<'EOF'
+:root {
+  --bg: #0f141b;
+  --panel: #151c24;
+  --panel-2: #1b2430;
+  --text: #e7edf5;
+  --muted: #8fa3b8;
+  --accent: #f6c453;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: \"Trebuchet MS\", Verdana, sans-serif;
+  background: radial-gradient(1200px 600px at 10% 10%, #1f2b3a, #0f141b 60%);
+  color: var(--text);
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.brand h1 {
+  margin: 0 0 6px 0;
+  font-size: 32px;
+  letter-spacing: 0.5px;
+}
+
+.brand p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status {
+  background: var(--panel);
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+.board-panel {
+  background: var(--panel);
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.board {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto 12px auto;
+}
+
+.board-meta {
+  text-align: center;
+  color: var(--muted);
+}
+
+.side-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--panel-2);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 18px;
+  letter-spacing: 0.3px;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.list-item {
+  border: 1px solid #2a3646;
+  border-radius: 10px;
+  padding: 10px;
+  background: #111821;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.2s ease;
+}
+
+.list-item:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.list-item .title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.list-item .meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.api {
+  background: #0f141b;
+  border-radius: 10px;
+  padding: 10px;
+  margin: 0;
+  color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  header { flex-direction: column; align-items: flex-start; }
+}
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 53ms:
+
+exec
+/bin/zsh -lc "cat > /Users/morpheusawakens/clawd/projects/openclaw-chess/public/app.js <<'EOF'
+let board = null;
+let currentGameId = null;
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+function renderGames(games) {
+  const container = document.getElementById('games');
+  container.innerHTML = '';
+
+  if ("'!games.length) {
+    container.innerHTML = '"'<div class=\"list-item\"><div class=\"title\">No games yet</div><div class=\"meta\">Agents can start via POST /play</div></div>';
+    return;
+  }
+
+  games.forEach(game => {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    item.onclick = () => selectGame(game.id);
+
+    const title = document.createElement('div');
+    title.className = 'title';
+    const white = game.players.w || 'Waiting';
+    const black = game.players.b || 'Waiting';
+    title.textContent = "'`${white} vs ${black}`;
+
+    const meta = document.createElement('"'div');
+    meta.className = 'meta';
+    meta.textContent = "'`${game.status} • ${game.id}`;
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    container.appendChild(item);
+  });
+}
+
+function renderLeaderboard(leaderboard) {
+  const container = document.getElementById('"'leaderboard');
+  container.innerHTML = '';
+
+  if ("'!leaderboard.length) {
+    container.innerHTML = '"'<div class=\"list-item\"><div class=\"title\">No results yet</div><div class=\"meta\">Play games to populate the board</div></div>';
+    return;
+  }
+
+  leaderboard.forEach((row, idx) => {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = "'`#${idx + 1} ${row.name}`;
+
+    const meta = document.createElement('"'div');
+    meta.className = 'meta';
+    meta.textContent = "'`W ${row.wins} • D ${row.draws} • L ${row.losses} • Games ${row.games}`;
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    container.appendChild(item);
+  });
+}
+
+async function fetchGames() {
+  const res = await fetch('"'/games');
+  const data = await res.json();
+  return data.games || [];
+}
+
+async function fetchLeaderboard() {
+  const res = await fetch('/leaderboard');
+  const data = await res.json();
+  return data.leaderboard || [];
+}
+
+async function selectGame(gameId) {
+  currentGameId = gameId;
+  const games = await fetchGames();
+  const game = games.find(g => g.id === gameId);
+  if ("'!game) return;
+
+  document.getElementById('"'gameTitle').textContent = "'`${game.players.w || '"'Waiting'} vs "'${game.players.b || '"'Waiting'}"'`;
+  document.getElementById('"'gameInfo').textContent = "'`${game.status} • ${game.id}`;
+  if (board) board.position(game.fen, false);
+}
+
+async function refresh() {
+  const [games, leaderboard] = await Promise.all([fetchGames(), fetchLeaderboard()]);
+  renderGames(games);
+  renderLeaderboard(leaderboard);
+
+  if (!currentGameId && games.length) {
+    await selectGame(games[0].id);
+  } else if (currentGameId) {
+    const current = games.find(g => g.id === currentGameId);
+    if (current && board) board.position(current.fen, false);
+  }
+
+  setStatus(`Live games: ${games.length} • Updated ${new Date().toLocaleTimeString()}`);
+}
+
+window.addEventListener('"'load', () => {
+  board = Chessboard('board', {
+    draggable: false,
+    position: 'start'
+  });
+  refresh();
+  setInterval(refresh, 2000);
+});
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+
+exec
+/bin/zsh -lc 'npm install' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 2.42s:
+
+added 75 packages, and audited 76 packages in 2s
+
+15 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+exec
+/bin/zsh -lc 'nohup node server.js > server.log 2>&1 &' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 57ms:
+
+exec
+/bin/zsh -lc 'curl -s http://localhost:3000/leaderboard' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 70ms:
+{"leaderboard":[]}
+exec
+/bin/zsh -lc 'openclaw gateway wake --text "Done: OpenClaw Chess 1.0 is live on port 3000. Leaderboard and API are ready for agents." --mode now' in /Users/morpheusawakens/clawd/projects/openclaw-chess exited 1 in 1.90s:
+error: unknown option '--text'
+exec
+/bin/zsh -lc 'openclaw gateway wake --help' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 1.69s:
+
+🦞 OpenClaw 2026.1.29 (a5b4d22) — WhatsApp automation without the "please accept our new privacy policy".
+
+Usage: openclaw gateway [options] [command]
+
+Run the WebSocket Gateway
+
+Options:
+  --port <port>              Port for the gateway WebSocket
+  --bind <mode>              Bind mode
+                             ("loopback"|"lan"|"tailnet"|"auto"|"custom").
+                             Defaults to config gateway.bind (or loopback).
+  --token <token>            Shared token required in connect.params.auth.token
+                             (default: OPENCLAW_GATEWAY_TOKEN env if set)
+  --auth <mode>              Gateway auth mode ("token"|"password")
+  --password <password>      Password for auth mode=password
+  --tailscale <mode>         Tailscale exposure mode ("off"|"serve"|"funnel")
+  --tailscale-reset-on-exit  Reset Tailscale serve/funnel configuration on
+                             shutdown (default: false)
+  --allow-unconfigured       Allow gateway start without gateway.mode=local in
+exec
+/bin/zsh -lc 'openclaw gateway call --help' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 1.45s:
+
+🦞 OpenClaw 2026.1.29 (a5b4d22) — I'm the assistant your terminal demanded, not the one your sleep schedule requested.
+
+Usage: openclaw gateway call [options] <method>
+
+Call a Gateway method
+
+Arguments:
+  method                 Method name (health/status/system-presence/cron.*)
+
+Options:
+  --params <json>        JSON object string for params (default: "{}")
+  --url <url>            Gateway WebSocket URL (defaults to gateway.remote.url
+                         when configured)
+  --token <token>        Gateway token (if required)
+  --password <password>  Gateway password (password auth)
+  --timeout <ms>         Timeout in ms (default: "10000")
+  --expect-final         Wait for final response (agent) (default: false)
+  --json                 Output JSON (default: false)
+  -h, --help             display help for command
+codex
+OpenClaw Chess 1.0 is set up and running on port 3000.
+
+I tried to run the notification command exactly as requested, but it failed:
+- `openclaw gateway wake --text "..." --mode now`
+- Error: `unknown option '--text'`
+
+Please confirm the correct OpenClaw CLI syntax for the wake/notify command, and I’ll run it immediately.
+
+What I built
+- Node/Express backend with `chess.js` logic, move validation, matchmaking, and persistent lowdb storage.
+- REST endpoint `POST /play` (matchmaking when `gameId` is missing; move handling when present).
+- Lowdb persistence for `games` + `leaderboard` in `data/db.json`.
+- Frontend in `public/index.html` using chessboardjs to show live games + leaderboard.
+
+Files created
+- `server.js`
+- `package.json`
+- `public/index.html`
+- `public/app.js`
+- `public/styles.css`
+- `data/db.json` (created at runtime)
+
+Natural next steps
+1) Tell me the correct notification command so I can run it.  
+2) If you want, I can add a small `/health` endpoint or simple test script.
+tokens used
+40,689
+OpenClaw Chess 1.0 is set up and running on port 3000.
+
+I tried to run the notification command exactly as requested, but it failed:
+- `openclaw gateway wake --text "..." --mode now`
+- Error: `unknown option '--text'`
+
+Please confirm the correct OpenClaw CLI syntax for the wake/notify command, and I’ll run it immediately.
+
+What I built
+- Node/Express backend with `chess.js` logic, move validation, matchmaking, and persistent lowdb storage.
+- REST endpoint `POST /play` (matchmaking when `gameId` is missing; move handling when present).
+- Lowdb persistence for `games` + `leaderboard` in `data/db.json`.
+- Frontend in `public/index.html` using chessboardjs to show live games + leaderboard.
+
+Files created
+- `server.js`
+- `package.json`
+- `public/index.html`
+- `public/app.js`
+- `public/styles.css`
+- `data/db.json` (created at runtime)
+
+Natural next steps
+1) Tell me the correct notification command so I can run it.  
+2) If you want, I can add a small `/health` endpoint or simple test script.
+OpenAI Codex v0.92.0 (research preview)
+--------
+workdir: /Users/morpheusawakens/clawd/projects/openclaw-chess
+model: gpt-5.2-codex
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: none
+reasoning summaries: auto
+session id: 019c12fd-7dcf-77e0-8475-dbc7c39e9d12
+--------
+user
+Refactor the current Chess project to be a highly modular, open-source 'OpenClaw Games' framework. 
+
+1. Structure it so we can easily add other games (Checkers, Poker) in the future.
+2. Add a comprehensive README.md explaining how other agents can:
+   - Fork the repo.
+   - Run the server locally.
+   - Connect their own agents to the API.
+   - Contribute new game modules.
+3. Include a 'How to Play' section for agents.
+
+When the code is clean and modular, run: 
+openclaw gateway wake --text "Done: OpenClaw Games framework (Chess 1.0) is ready for GitHub push." --mode now
+mcp startup: no servers
+exec
+/bin/zsh -lc ls in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 50ms:
+build.log
+data
+node_modules
+package-lock.json
+package.json
+public
+server.js
+server.log
+exec
+/bin/zsh -lc 'rg --files' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 92ms:
+build.log
+server.log
+data/db.json
+package.json
+package-lock.json
+public/app.js
+public/styles.css
+public/index.html
+node_modules/setprototypeof/index.d.ts
+node_modules/setprototypeof/package.json
+node_modules/setprototypeof/README.md
+node_modules/setprototypeof/index.js
+node_modules/setprototypeof/test/index.js
+node_modules/setprototypeof/LICENSE
+node_modules/es-object-atoms/ToObject.js
+node_modules/es-object-atoms/index.d.ts
+node_modules/es-object-atoms/tsconfig.json
+node_modules/es-object-atoms/isObject.d.ts
+node_modules/es-object-atoms/isObject.js
+node_modules/es-object-atoms/package.json
+exec
+/bin/zsh -lc "sed -n '1,200p' server.js" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 56ms:
+const path = require('path');
+const express = require('express');
+const { Chess } = require('chess.js');
+const low = require('lowdb');
+const FileSync = require('lowdb/adapters/FileSync');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+const db = low(adapter);
+
+db.defaults({ games: {}, leaderboard: {} }).write();
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function generateId() {
+exec
+/bin/zsh -lc "sed -n '200,400p' server.js" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 56ms:
+    updatedAt: g.updatedAt,
+    result: g.result
+  }));
+  res.json({ games });
+});
+
+app.get('/leaderboard', (req, res) => {
+  const board = db.get('leaderboard').values().value();
+  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+  res.json({ leaderboard: board });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+});
+exec
+/bin/zsh -lc "sed -n '1,200p' public/app.js" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 56ms:
+let board = null;
+let currentGameId = null;
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+function renderGames(games) {
+  const container = document.getElementById('games');
+  container.innerHTML = '';
+
+  if (!games.length) {
+    container.innerHTML = '<div class="list-item"><div class="title">No games yet</div><div class="meta">Agents can start via POST /play</div></div>';
+    return;
+  }
+
+  games.forEach(game => {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    item.onclick = () => selectGame(game.id);
+exec
+/bin/zsh -lc 'cat package.json' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+{
+  "name": "openclaw-chess",
+  "version": "1.0.0",
+  "description": "OpenClaw Chess 1.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "chess.js": "^1.0.0",
+    "express": "^4.19.2",
+    "lowdb": "^1.0.0"
+  }
+}
+Plan update
+Refactor into modular framework, keep chess working, and add comprehensive README.
+  ✓ Inspect current server and client, identify required compatibility endpoints and data shapes.
+  → Design modular game framework structure and implement core registry/store/matchmaking APIs.
+  • Port chess logic into a game module and wire API routes plus backward-compatible endpoints.
+  • Update package entrypoints and add README with forking/run/connect/contribute/how-to-play.
+  • Run quick sanity checks and trigger gateway wake command.
+exec
+/bin/zsh -lc 'mkdir -p src/api src/core src/games/chess' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 56ms:
+
+exec
+/bin/zsh -lc 'cat data/db.json' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+{
+  "games": {},
+  "leaderboard": {}
+}
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/utils.js
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function generateId(prefix = 'g') {
+  return "'`${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+module.exports = {
+  nowIso,
+  generateId
+};
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 58ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/db.js
+const path = require('path');
+const low = require('lowdb');
+const FileSync = require('lowdb/adapters/FileSync');
+
+function createDb({ dataDir }) {
+  const adapter = new FileSync(path.join(dataDir, 'db.json'));
+  const db = low(adapter);
+
+  db.defaults({ games: {}, leaderboards: {} }).write();
+
+  if ("'!db.has('"'leaderboards').value()) {
+    db.set('leaderboards', {}).write();
+  }
+
+  if (db.has('leaderboard').value() && "'!db.get('"'leaderboards').get('chess').value()) {
+    db.set('leaderboards.chess', db.get('leaderboard').value()).write();
+  }
+
+  return db;
+}
+
+module.exports = {
+  createDb
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/registry.js
+function createRegistry() {
+  const modules = new Map();
+
+  function register(module) {
+    if ("'!module || !module.key) {
+      throw new Error('"'Game module must define a unique key');
+    }
+    if (modules.has(module.key)) {
+      throw new Error("'`Game module already registered: ${module.key}`);
+    }
+    modules.set(module.key, module);
+  }
+
+  function get(key) {
+    return modules.get(key);
+  }
+
+  function list() {
+    return Array.from(modules.values()).map(mod => ({
+      key: mod.key,
+      name: mod.name,
+      version: mod.version,
+      minPlayers: mod.minPlayers,
+      maxPlayers: mod.maxPlayers,
+      roles: mod.roles
+    }));
+  }
+
+  return {
+    register,
+    get,
+    list
+  };
+}
+
+module.exports = {
+  createRegistry
+};
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/store.js
+const { nowIso, generateId } = require('./utils');
+
+function createStore(db) {
+  function createGame({ gameKey, players, state, status }) {
+    const id = generateId('game');
+    const game = {
+      id,
+      gameKey,
+      status,
+      players,
+      state,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      result: null
+    };
+    db.get('games').set(id, game).write();
+    return game;
+  }
+
+  function getGame(id) {
+    return db.get('games').get(id).value();
+  }
+
+  function saveGame(game) {
+    const updated = { ...game, updatedAt: nowIso() };
+    db.get('games').set(game.id, updated).write();
+    return updated;
+  }
+
+  function listGames({ gameKey } = {}) {
+    const games = db.get('games').values().value() || [];
+    if ("'!gameKey) return games;
+    return games.filter(game => game.gameKey === gameKey || (!game.gameKey && gameKey === '"'chess'));
+  }
+
+  function findWaitingGame(gameKey, excludeName) {
+    const games = db.get('games').values().value() || [];
+    return games.find(game => {
+      if ((game.gameKey || 'chess') "'!== gameKey) return false;
+      if (game.status !== '"'waiting') return false;
+      const players = Object.values(game.players || {});
+      if (players.includes(excludeName)) return false;
+      return players.some(player => "'!player);
+    });
+  }
+
+  return {
+    createGame,
+    getGame,
+    saveGame,
+    listGames,
+    findWaitingGame
+  };
+}
+
+module.exports = {
+  createStore
+};
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 52ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/leaderboard.js
+function createLeaderboard(db) {
+  function ensureBoard(gameKey) {
+    if ("'!db.get('"'leaderboards').get(gameKey).value()) {
+      db.get('leaderboards').set(gameKey, {}).write();
+    }
+  }
+
+  function getEntry(gameKey, name) {
+    ensureBoard(gameKey);
+    const entry = db.get('leaderboards').get(gameKey).get(name).value();
+    if (entry) return entry;
+    const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+    db.get('leaderboards').get(gameKey).set(name, fresh).write();
+    return fresh;
+  }
+
+  function recordResult(gameKey, winnerName, loserName, isDraw) {
+    if (isDraw) {
+      const a = getEntry(gameKey, winnerName);
+      const b = getEntry(gameKey, loserName);
+      a.draws += 1; a.games += 1;
+      b.draws += 1; b.games += 1;
+      db.get('leaderboards').get(gameKey).set(winnerName, a).write();
+      db.get('leaderboards').get(gameKey).set(loserName, b).write();
+      return;
+    }
+    const win = getEntry(gameKey, winnerName);
+    const loss = getEntry(gameKey, loserName);
+    win.wins += 1; win.games += 1;
+    loss.losses += 1; loss.games += 1;
+    db.get('leaderboards').get(gameKey).set(winnerName, win).write();
+    db.get('leaderboards').get(gameKey).set(loserName, loss).write();
+  }
+
+  function listLeaderboard(gameKey) {
+    ensureBoard(gameKey);
+    const board = db.get('leaderboards').get(gameKey).values().value() || [];
+    board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+    return board;
+  }
+
+  return {
+    getEntry,
+    recordResult,
+    listLeaderboard
+  };
+}
+
+module.exports = {
+  createLeaderboard
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 53ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/core/matchmaking.js
+function createPlayersTemplate(module) {
+  if ("'!module.roles || !module.roles.length) {
+    throw new Error(`Game module ${module.key} must define roles for matchmaking`);
+  }
+  return module.roles.reduce((acc, role) => {
+    acc[role] = null;
+    return acc;
+  }, {});
+}
+
+function assignFirstOpenRole(players, agentName) {
+  const role = Object.keys(players).find(key => !players[key]);
+  if (!role) return null;
+  players[role] = agentName;
+  return role;
+}
+
+function hasOpenSlot(players) {
+  return Object.values(players).some(player => !player);
+}
+
+function matchOrCreate({ gameKey, module, store, agentName }) {
+  let game = store.findWaitingGame(gameKey, agentName);
+  let role = null;
+
+  if (game) {
+    role = assignFirstOpenRole(game.players, agentName);
+    game.status = hasOpenSlot(game.players) ? '"'waiting' : 'active';
+    game = store.saveGame(game);
+  } else {
+    const players = createPlayersTemplate(module);
+    role = assignFirstOpenRole(players, agentName);
+    game = store.createGame({
+      gameKey,
+      players,
+      state: module.createInitialState({ players }),
+      status: hasOpenSlot(players) ? 'waiting' : 'active'
+    });
+  }
+
+  return { game, role };
+}
+
+module.exports = {
+  matchOrCreate
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/games/chess/index.js
+const { Chess } = require('chess.js');
+const { nowIso } = require('../../core/utils');
+
+const chessModule = {
+  key: 'chess',
+  name: 'Chess',
+  version: '1.0',
+  minPlayers: 2,
+  maxPlayers: 2,
+  roles: ['w', 'b'],
+  createInitialState() {
+    const chess = new Chess();
+    return { fen: chess.fen(), history: [] };
+  },
+  getPublicState(state) {
+    return { fen: state.fen, history: state.history };
+  },
+  getCurrentTurn(state) {
+    const chess = new Chess(state.fen);
+    return chess.turn();
+  },
+  applyMove({ state, move, playerName }) {
+    const chess = new Chess(state.fen);
+    const result = chess.move(move, { sloppy: true });
+    if ("'!result) {
+      return { error: '"'invalid move' };
+    }
+    const nextState = {
+      fen: chess.fen(),
+      history: [
+        ...state.history,
+        { move: result.san, by: playerName, at: nowIso() }
+      ]
+    };
+    return { state: nextState };
+  },
+  evaluate({ state, players }) {
+    const chess = new Chess(state.fen);
+    if ("'!chess.isGameOver()) {
+      return { isGameOver: false, result: null };
+    }
+
+    let outcome = '"'draw';
+    let winner = null;
+    let reason = 'draw';
+    let isDraw = true;
+
+    if (chess.isCheckmate()) {
+      outcome = 'checkmate';
+      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+      winner = players[winnerSide];
+      reason = 'checkmate';
+      isDraw = false;
+    }
+
+    return {
+      isGameOver: true,
+      result: {
+        outcome,
+        winner,
+        reason,
+        isDraw
+      }
+    };
+  }
+};
+
+module.exports = {
+  chessModule
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/api/handlers.js
+const { matchOrCreate } = require('../core/matchmaking');
+
+function createHandlers({ registry, store, leaderboard, defaultGameKey }) {
+  function resolveModule(gameKey) {
+    const module = registry.get(gameKey);
+    if ("'!module) {
+      return { error: `unknown game module: ${gameKey}` };
+    }
+    return { module };
+  }
+
+  function normalizeLegacyGame(game, gameKey) {
+    if (!game) return game;
+    if (game.gameKey && game.state) return game;
+    if (!game.state && game.fen) {
+      return {
+        ...game,
+        gameKey: game.gameKey || gameKey,
+        state: {
+          fen: game.fen,
+          history: game.history || []
+        }
+      };
+    }
+    return { ...game, gameKey: game.gameKey || gameKey };
+  }
+
+  function buildGameView(game) {
+    const module = registry.get(game.gameKey || defaultGameKey);
+    const state = module ? module.getPublicState(game.state || {}) : game.state;
+    const view = {
+      id: game.id,
+      gameKey: game.gameKey || defaultGameKey,
+      status: game.status,
+      players: game.players,
+      state,
+      updatedAt: game.updatedAt,
+      result: game.result
+    };
+
+    if (state && state.fen) view.fen = state.fen;
+    if (state && state.history) view.history = state.history;
+    return view;
+  }
+
+  function handlePlay(gameKey, req, res) {
+    const { gameId, move, agentName } = req.body || {};
+
+    if (!agentName || typeof agentName !== '"'string') {
+      return res.status(400).json({ error: 'agentName is required' });
+    }
+
+    const { module, error } = resolveModule(gameKey);
+    if (error) return res.status(404).json({ error });
+
+    if ("'!gameId) {
+      const { game, role } = matchOrCreate({
+        gameKey,
+        module,
+        store,
+        agentName
+      });
+
+      return res.json({
+        matched: true,
+        gameId: game.id,
+        gameKey,
+        role,
+        status: game.status,
+        players: game.players,
+        state: module.getPublicState(game.state),
+        fen: game.state && game.state.fen
+      });
+    }
+
+    let game = normalizeLegacyGame(store.getGame(gameId), gameKey);
+    if (!game) return res.status(404).json({ error: '"'game not found' });
+
+    if ("'!move) {
+      return res.json(buildGameView(game));
+    }
+
+    if (game.status === '"'finished') {
+      return res.status(400).json({ error: 'game already finished', result: game.result });
+    }
+
+    const role = Object.keys(game.players || {}).find(key => game.players[key] === agentName);
+    if ("'!role) return res.status(400).json({ error: '"'agent is not part of this game' });
+
+    if (game.status === 'waiting') {
+      return res.status(400).json({ error: 'waiting for opponent' });
+    }
+
+    const turn = module.getCurrentTurn(game.state);
+    if (turn "'!== role) {
+      return res.status(400).json({ error: '"'not your turn', turn });
+    }
+
+    const moveResult = module.applyMove({
+      state: game.state,
+      move,
+      playerRole: role,
+      playerName: agentName,
+      players: game.players
+    });
+
+    if (moveResult.error) return res.status(400).json({ error: moveResult.error });
+
+    game.state = moveResult.state;
+
+    const evaluation = module.evaluate({ state: game.state, players: game.players });
+    if (evaluation.isGameOver) {
+      game.status = 'finished';
+      game.result = evaluation.result;
+
+      if (evaluation.result) {
+        if (evaluation.result.isDraw) {
+          const a = game.players[module.roles[0]];
+          const b = game.players[module.roles[1]];
+          if (a && b) leaderboard.recordResult(gameKey, a, b, true);
+        } else if (evaluation.result.winner) {
+          const loserRole = module.roles.find(r => game.players[r] && game.players[r] "'!== evaluation.result.winner);
+          const loser = loserRole ? game.players[loserRole] : null;
+          if (loser) leaderboard.recordResult(gameKey, evaluation.result.winner, loser, false);
+        }
+      }
+    } else {
+      game.status = '"'active';
+    }
+
+    game = store.saveGame(game);
+    return res.json(buildGameView(game));
+  }
+
+  function handleListGames(gameKey, req, res) {
+    const games = store.listGames({ gameKey });
+    const normalized = games.map(game => buildGameView(normalizeLegacyGame(game, gameKey)));
+    res.json({ games: normalized });
+  }
+
+  function handleGetGame(req, res) {
+    const game = store.getGame(req.params.gameId);
+    if ("'!game) return res.status(404).json({ error: '"'game not found' });
+    const normalized = normalizeLegacyGame(game, game.gameKey || defaultGameKey);
+    return res.json(buildGameView(normalized));
+  }
+
+  function handleLeaderboard(gameKey, req, res) {
+    const board = leaderboard.listLeaderboard(gameKey);
+    res.json({ leaderboard: board });
+  }
+
+  return {
+    handlePlay,
+    handleListGames,
+    handleGetGame,
+    handleLeaderboard
+  };
+}
+
+module.exports = {
+  createHandlers
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 53ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/api/routes.js
+const express = require('express');
+const { createHandlers } = require('./handlers');
+
+function createApiRouter(deps) {
+  const router = express.Router();
+  const handlers = createHandlers(deps);
+
+  router.get('/health', (req, res) => res.json({ ok: true }));
+
+  router.get('/modules', (req, res) => {
+    res.json({ modules: deps.registry.list() });
+  });
+
+  router.get('/games', (req, res) => {
+    const gameKey = req.query.gameKey || deps.defaultGameKey;
+    handlers.handleListGames(gameKey, req, res);
+  });
+
+  router.get('/games/:gameId', (req, res) => {
+    handlers.handleGetGame(req, res);
+  });
+
+  router.post('/games/:gameKey/play', (req, res) => {
+    handlers.handlePlay(req.params.gameKey, req, res);
+  });
+
+  router.get('/leaderboard', (req, res) => {
+    const gameKey = req.query.gameKey || deps.defaultGameKey;
+    handlers.handleLeaderboard(gameKey, req, res);
+  });
+
+  return router;
+}
+
+module.exports = {
+  createApiRouter
+};
+EOF" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+exec
+/bin/zsh -lc "cat <<'EOF' > src/server.js
+const path = require('path');
+const express = require('express');
+const { createDb } = require('./core/db');
+const { createRegistry } = require('./core/registry');
+const { createStore } = require('./core/store');
+const { createLeaderboard } = require('./core/leaderboard');
+const { createApiRouter } = require('./api/routes');
+const { createHandlers } = require('./api/handlers');
+const { chessModule } = require('./games/chess');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+const dataDir = path.join(__dirname, '..', 'data');
+const db = createDb({ dataDir });
+const registry = createRegistry();
+registry.register(chessModule);
+
+const store = createStore(db);
+const leaderboard = createLeaderboard(db);
+const defaultGameKey = process.env.DEFAULT_GAME_KEY || 'chess';
+
+app.use('/api', createApiRouter({ registry, store, leaderboard, defaultGameKey }));
+
+const handlers = createHandlers({ registry, store, leaderboard, defaultGameKey });
+
+app.post('/play', (req, res) => {
+  handlers.handlePlay(defaultGameKey, req, res);
+});
+
+app.get('/games', (req, res) => {
+  handlers.handleListGames(defaultGameKey, req, res);
+});
+
+app.get('/leaderboard', (req, res) => {
+  handlers.handleLeaderboard(defaultGameKey, req, res);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("'`OpenClaw Games (Chess 1.0) running on port ${PORT}`);
+});
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 52ms:
+
+file update
+M /Users/morpheusawakens/clawd/projects/openclaw-chess/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+apply_patch(auto_approved=true) exited 0 in 30ms:
+Success. Updated the following files:
+M /Users/morpheusawakens/clawd/projects/openclaw-chess/server.js
+file update:
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+file update:
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+file update
+M /Users/morpheusawakens/clawd/projects/openclaw-chess/package.json
+@@ -1,5 +1,5 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+apply_patch(auto_approved=true) exited 0 in 38ms:
+Success. Updated the following files:
+M /Users/morpheusawakens/clawd/projects/openclaw-chess/package.json
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+exec
+/bin/zsh -lc 'ls -a' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 54ms:
+.
+..
+.git
+build.log
+data
+node_modules
+package-lock.json
+package.json
+public
+server.js
+server.log
+src
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+exec
+/bin/zsh -lc "cat <<'EOF' > README.md
+# OpenClaw Games Framework (Chess 1.0)
+
+OpenClaw Games is a modular, open-source framework for turn-based game agents. Chess ships as the first game module, and new games (Checkers, Poker, etc.) can be added by dropping in a module and registering it.
+
+## Repo Structure
+
+"'```
+public/            # Optional web UI (currently Chess-only)
+src/
+  api/             # HTTP API routing + handlers
+  core/            # Framework primitives (registry, store, leaderboard, matchmaking)
+  games/           # Game modules
+    chess/         # Chess 1.0 module
+  server.js        # App wiring and HTTP server
+server.js          # Thin entrypoint
+```
+
+## Fork the Repo
+
+1) Fork this repository on GitHub.
+2) Clone your fork locally:
+
+```bash
+git clone <your-fork-url>
+cd openclaw-games
+```
+
+## Run the Server Locally
+
+```bash
+npm install
+npm start
+```
+
+Server defaults to `http://localhost:3000` and serves:
+- `public/` web UI at `/`
+- API at `/api`
+
+Optional environment variables:
+- `PORT` (default: 3000)
+- `DEFAULT_GAME_KEY` (default: `chess`)
+
+## Connect Your Agent to the API
+
+### Discover available game modules
+
+```bash
+curl http://localhost:3000/api/modules
+```
+
+### Matchmake or create a game (Chess)
+
+```bash
+curl -X POST http://localhost:3000/api/games/chess/play '"\\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"agentName\":\"AgentAlpha\"}'
+"'```
+
+Response includes `gameId`, your assigned `role`, and current `state`.
+
+### Submit a move
+
+```bash
+curl -X POST http://localhost:3000/api/games/chess/play '"\\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"agentName\":\"AgentAlpha\",\"gameId\":\"<game-id>\",\"move\":\"e4\"}'
+"'```
+
+### Poll game state
+
+```bash
+curl -X POST http://localhost:3000/api/games/chess/play '"\\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"agentName\":\"AgentAlpha\",\"gameId\":\"<game-id>\"}'
+"'```
+
+### Leaderboard (per game)
+
+```bash
+curl http://localhost:3000/api/leaderboard?gameKey=chess
+```
+
+## How to Play (Agent Guide)
+
+1) **Matchmake**: call `POST /api/games/<gameKey>/play` with your `agentName`.
+2) **Wait for opponent**: if the game is `waiting`, keep polling until it’s `active`.
+3) **Check your role**: you’ll receive a `role` (`w` or `b` for Chess).
+4) **Make legal moves**: submit standard SAN or algebraic moves (Chess uses `chess.js` parsing).
+5) **Respect turns**: if the API says `not your turn`, wait and poll.
+6) **Game over**: when `status` becomes `finished`, read `result` for outcome and winner.
+
+## Contribute a New Game Module
+
+1) Create a new folder under `src/games/<your-game>/`.
+2) Export a module object with the required interface.
+3) Register it in `src/server.js`.
+
+### Minimal Module Interface
+
+```js
+// src/games/checkers/index.js
+const checkersModule = {
+  key: '"'checkers',
+  name: 'Checkers',
+  version: '1.0',
+  minPlayers: 2,
+  maxPlayers: 2,
+  roles: ['r', 'b'],
+  createInitialState() {
+    return { /* game state */ };
+  },
+  getPublicState(state) {
+    return state;
+  },
+  getCurrentTurn(state) {
+    return 'r';
+  },
+  applyMove({ state, move, playerName }) {
+    return { state };
+  },
+  evaluate({ state, players }) {
+    return { isGameOver: false, result: null };
+  }
+};
+
+module.exports = { checkersModule };
+"'```
+
+### Register the Module
+
+```js
+// src/server.js
+const { checkersModule } = require('"'./games/checkers');
+registry.register(checkersModule);
+"'```
+
+### Add Module-Specific Notes
+
+- Define `roles` in the order you want matchmaking to fill slots.
+- `applyMove` should return `{ state }` or `{ error: '"'message' }"'`.
+- `evaluate` should return `{ isGameOver: true, result: { outcome, winner, reason, isDraw } }` when finished.
+
+## Compatibility Endpoints
+
+Legacy routes still work for the default game:
+- `POST /play`
+- `GET /games`
+- `GET /leaderboard`
+
+These map to the default game (`DEFAULT_GAME_KEY`).
+EOF' in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 55ms:
+
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+Plan update
+Core framework and chess module are in place; README and package metadata updated. Next: quick sanity check and gateway wake.
+  ✓ Inspect current server and client, identify required compatibility endpoints and data shapes.
+  ✓ Design modular game framework structure and implement core registry/store/matchmaking APIs.
+  ✓ Port chess logic into a game module and wire API routes plus backward-compatible endpoints.
+  ✓ Update package entrypoints and add README with forking/run/connect/contribute/how-to-play.
+  → Run quick sanity checks and trigger gateway wake command.
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+exec
+/bin/zsh -lc "node -e \"require('./src/games/chess');require('./src/api/handlers');require('./src/server');\"" in /Users/morpheusawakens/clawd/projects/openclaw-chess exited 1 in 128ms:
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at app.listen (/Users/morpheusawakens/clawd/projects/openclaw-chess/node_modules/express/lib/application.js:635:24)
+    at Object.<anonymous> (/Users/morpheusawakens/clawd/projects/openclaw-chess/src/server.js:41:5)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -48,
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+exec
+/bin/zsh -lc "node -e \"require('./src/games/chess');require('./src/api/handlers');require('./src/api/routes');\"" in /Users/morpheusawakens/clawd/projects/openclaw-chess succeeded in 110ms:
+
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+Plan update
+Sanity check completed (excluding server start due to port already in use). Next: run the gateway wake command.
+  ✓ Inspect current server and client, identify required compatibility endpoints and data shapes.
+  ✓ Design modular game framework structure and implement core registry/store/matchmaking APIs.
+  ✓ Port chess logic into a game module and wire API routes plus backward-compatible endpoints.
+  ✓ Update package entrypoints and add README with forking/run/connect/contribute/how-to-play.
+  ✓ Run quick sanity checks and trigger gateway wake command.
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+exec
+/bin/zsh -lc 'openclaw gateway wake --text "Done: OpenClaw Games framework (Chess 1.0) is ready for GitHub push." --mode now' in /Users/morpheusawakens/clawd/projects/openclaw-chess exited 1 in 1.48s:
+error: unknown option '--text'
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+codex
+Refactor complete: core framework added, chess moved into a module, API now supports multiple games with legacy compatibility, and a comprehensive README is in place.
+
+Details
+- New modular framework under `src/core/`, `src/api/`, and `src/games/chess/` with registry, store, matchmaking, and per-game leaderboards.
+- Server now wires modules and exposes both `/api/*` and legacy `/play`, `/games`, `/leaderboard` endpoints.
+- README covers forking, local run, agent API usage, contributing new modules, and a How to Play guide.
+- Package metadata updated for OpenClaw Games.
+
+Files changed/added
+- `server.js`
+- `package.json`
+- `src/server.js`
+- `src/api/handlers.js`
+- `src/api/routes.js`
+- `src/core/db.js`
+- `src/core/leaderboard.js`
+- `src/core/matchmaking.js`
+- `src/core/registry.js`
+- `src/core/store.js`
+- `src/core/utils.js`
+- `src/games/chess/index.js`
+- `README.md`
+
+Checks
+- `node -e "require('./src/games/chess');require('./src/api/handlers');require('./src/api/routes');"`
+- Attempted server start for validation failed because port 3000 is already in use.
+
+Gateway command
+- Tried: `openclaw gateway wake --text "Done: OpenClaw Games framework (Chess 1.0) is ready for GitHub push." --mode now`
+- Result: `error: unknown option '--text'` (command did not succeed).
+
+If you want, I can:
+1) Retry the gateway wake command with the correct flag syntax.
+2) Add a second game module skeleton (e.g., Checkers) to demonstrate extension.
+3) Update the web UI to allow switching between game modules.
+file update:
+diff --git a/package.json b/package.json
+index a52b358647bdf667a4bae288e592f38f9c06acfa..09a91b478dcdc8dccbcc30dbc6b07e4ad65d777c
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+-  "name": "openclaw-chess",
++  "name": "openclaw-games",
+   "version": "1.0.0",
+-  "description": "OpenClaw Chess 1.0",
++  "description": "OpenClaw Games framework (Chess 1.0)",
+   "main": "server.js",
+   "scripts": {
+     "start": "node server.js"
+diff --git a/server.js b/server.js
+index 4312959442b9e86c42725e06dd8012e7729afd0f..440ef3039b62e5d6040daeab75efa4b16f09715c
+--- a/server.js
++++ b/server.js
+@@ -1,215 +1 @@
+-const path = require('path');
+-const express = require('express');
+-const { Chess } = require('chess.js');
+-const low = require('lowdb');
+-const FileSync = require('lowdb/adapters/FileSync');
+-
+-const app = express();
+-app.use(express.json());
+-app.use(express.static(path.join(__dirname, 'public')));
+-
+-const adapter = new FileSync(path.join(__dirname, 'data', 'db.json'));
+-const db = low(adapter);
+-
+-db.defaults({ games: {}, leaderboard: {} }).write();
+-
+-function nowIso() {
+-  return new Date().toISOString();
+-}
+-
+-function generateId() {
+-  return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+-}
+-
+-function getLeaderboardEntry(name) {
+-  const entry = db.get('leaderboard').get(name).value();
+-  if (entry) return entry;
+-  const fresh = { name, wins: 0, losses: 0, draws: 0, games: 0 };
+-  db.get('leaderboard').set(name, fresh).write();
+-  return fresh;
+-}
+-
+-function recordResult(winnerName, loserName, isDraw) {
+-  if (isDraw) {
+-    const a = getLeaderboardEntry(winnerName);
+-    const b = getLeaderboardEntry(loserName);
+-    a.draws += 1; a.games += 1;
+-    b.draws += 1; b.games += 1;
+-    db.get('leaderboard').set(winnerName, a).write();
+-    db.get('leaderboard').set(loserName, b).write();
+-    return;
+-  }
+-  const win = getLeaderboardEntry(winnerName);
+-  const loss = getLeaderboardEntry(loserName);
+-  win.wins += 1; win.games += 1;
+-  loss.losses += 1; loss.games += 1;
+-  db.get('leaderboard').set(winnerName, win).write();
+-  db.get('leaderboard').set(loserName, loss).write();
+-}
+-
+-function createGame(firstPlayerName) {
+-  const chess = new Chess();
+-  const id = generateId();
+-  const game = {
+-    id,
+-    status: 'waiting',
+-    players: { w: firstPlayerName, b: null },
+-    fen: chess.fen(),
+-    history: [],
+-    createdAt: nowIso(),
+-    updatedAt: nowIso(),
+-    result: null
+-  };
+-  db.get('games').set(id, game).write();
+-  return game;
+-}
+-
+-function findWaitingGame(excludeName) {
+-  const games = db.get('games').values().value();
+-  return games.find(g => g.status === 'waiting' && g.players.w && g.players.w !== excludeName);
+-}
+-
+-function getGame(id) {
+-  return db.get('games').get(id).value();
+-}
+-
+-function saveGame(game) {
+-  game.updatedAt = nowIso();
+-  db.get('games').set(game.id, game).write();
+-}
+-
+-app.post('/play', (req, res) => {
+-  const { gameId, move, agentName } = req.body || {};
+-
+-  if (!agentName || typeof agentName !== 'string') {
+-    return res.status(400).json({ error: 'agentName is required' });
+-  }
+-
+-  // Matchmaking path
+-  if (!gameId) {
+-    const waiting = findWaitingGame(agentName);
+-    let game = waiting;
+-    let side = 'w';
+-
+-    if (game) {
+-      if (!game.players.b) {
+-        game.players.b = agentName;
+-        side = 'b';
+-      } else if (!game.players.w) {
+-        game.players.w = agentName;
+-        side = 'w';
+-      }
+-      game.status = 'active';
+-      saveGame(game);
+-    } else {
+-      game = createGame(agentName);
+-      side = 'w';
+-    }
+-
+-    return res.json({
+-      matched: true,
+-      gameId: game.id,
+-      side,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players
+-    });
+-  }
+-
+-  const game = getGame(gameId);
+-  if (!game) return res.status(404).json({ error: 'game not found' });
+-
+-  if (!move) {
+-    return res.json({
+-      gameId: game.id,
+-      status: game.status,
+-      fen: game.fen,
+-      players: game.players,
+-      history: game.history,
+-      result: game.result
+-    });
+-  }
+-
+-  if (game.status === 'finished') {
+-    return res.status(400).json({ error: 'game already finished', result: game.result });
+-  }
+-
+-  const chess = new Chess(game.fen);
+-
+-  const agentSide = game.players.w === agentName ? 'w' : (game.players.b === agentName ? 'b' : null);
+-  if (!agentSide) return res.status(400).json({ error: 'agent is not part of this game' });
+-
+-  if (game.status === 'waiting') {
+-    return res.status(400).json({ error: 'waiting for opponent' });
+-  }
+-
+-  if (chess.turn() !== agentSide) {
+-    return res.status(400).json({ error: 'not your turn', turn: chess.turn() });
+-  }
+-
+-  const result = chess.move(move, { sloppy: true });
+-  if (!result) return res.status(400).json({ error: 'invalid move' });
+-
+-  game.fen = chess.fen();
+-  game.history.push({
+-    move: result.san,
+-    by: agentName,
+-    at: nowIso()
+-  });
+-
+-  if (chess.isGameOver()) {
+-    let outcome = 'draw';
+-    let winner = null;
+-    let reason = 'draw';
+-
+-    if (chess.isCheckmate()) {
+-      outcome = 'checkmate';
+-      const winnerSide = chess.turn() === 'w' ? 'b' : 'w';
+-      winner = game.players[winnerSide];
+-      reason = 'checkmate';
+-      const loser = winnerSide === 'w' ? game.players.b : game.players.w;
+-      if (winner && loser) recordResult(winner, loser, false);
+-    } else {
+-      const a = game.players.w;
+-      const b = game.players.b;
+-      if (a && b) recordResult(a, b, true);
+-    }
+-
+-    game.status = 'finished';
+-    game.result = { outcome, winner, reason };
+-  }
+-
+-  saveGame(game);
+-
+-  return res.json({
+-    ok: true,
+-    gameId: game.id,
+-    fen: game.fen,
+-    status: game.status,
+-    history: game.history,
+-    result: game.result
+-  });
+-});
+-
+-app.get('/games', (req, res) => {
+-  const games = db.get('games').values().value().map(g => ({
+-    id: g.id,
+-    status: g.status,
+-    players: g.players,
+-    fen: g.fen,
+-    updatedAt: g.updatedAt,
+-    result: g.result
+-  }));
+-  res.json({ games });
+-});
+-
+-app.get('/leaderboard', (req, res) => {
+-  const board = db.get('leaderboard').values().value();
+-  board.sort((a, b) => (b.wins - a.wins) || (b.draws - a.draws) || (a.losses - b.losses));
+-  res.json({ leaderboard: board });
+-});
+-
+-const PORT = process.env.PORT || 3000;
+-app.listen(PORT, () => {
+-  console.log(`OpenClaw Chess 1.0 running on port ${PORT}`);
+-});
++require('./src/server');
+
+tokens used
+187,867
+Refactor complete: core framework added, chess moved into a module, API now supports multiple games with legacy compatibility, and a comprehensive README is in place.
+
+Details
+- New modular framework under `src/core/`, `src/api/`, and `src/games/chess/` with registry, store, matchmaking, and per-game leaderboards.
+- Server now wires modules and exposes both `/api/*` and legacy `/play`, `/games`, `/leaderboard` endpoints.
+- README covers forking, local run, agent API usage, contributing new modules, and a How to Play guide.
+- Package metadata updated for OpenClaw Games.
+
+Files changed/added
+- `server.js`
+- `package.json`
+- `src/server.js`
+- `src/api/handlers.js`
+- `src/api/routes.js`
+- `src/core/db.js`
+- `src/core/leaderboard.js`
+- `src/core/matchmaking.js`
+- `src/core/registry.js`
+- `src/core/store.js`
+- `src/core/utils.js`
+- `src/games/chess/index.js`
+- `README.md`
+
+Checks
+- `node -e "require('./src/games/chess');require('./src/api/handlers');require('./src/api/routes');"`
+- Attempted server start for validation failed because port 3000 is already in use.
+
+Gateway command
+- Tried: `openclaw gateway wake --text "Done: OpenClaw Games framework (Chess 1.0) is ready for GitHub push." --mode now`
+- Result: `error: unknown option '--text'` (command did not succeed).
+
+If you want, I can:
+1) Retry the gateway wake command with the correct flag syntax.
+2) Add a second game module skeleton (e.g., Checkers) to demonstrate extension.
+3) Update the web UI to allow switching between game modules.
