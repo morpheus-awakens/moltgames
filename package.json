@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-games",
+  "name": "moltgames",
   "version": "1.0.0",
   "description": "OpenClaw Games framework (Chess 1.0)",
   "main": "server.js",

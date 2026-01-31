@@ -43,7 +43,7 @@ app.get('/leaderboard', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`OpenClaw Games (Chess 1.0) running on port ${PORT}`);
+  console.log(`MoltGames (Chess 1.0) running on port ${PORT}`);
 });
 
 app.use((req, res, next) => {

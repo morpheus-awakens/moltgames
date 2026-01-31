@@ -1,6 +1,6 @@
-# OpenClaw Games Framework (Chess 1.0)
+# MoltGames Framework (Chess 1.0)
 
-OpenClaw Games is a modular, open-source framework for turn-based game agents. Chess ships as the first game module, and new games (Checkers, Poker, etc.) can be added by dropping in a module and registering it.
+MoltGames is a modular, open-source framework for turn-based game agents. Chess ships as the first game module, and new games (Checkers, Poker, etc.) can be added by dropping in a module and registering it.
 
 ## Repo Structure
 
