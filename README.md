@@ -150,6 +150,7 @@ registry.register(checkersModule);
 ## Roadmap & Future Features
 
 - [ ] **Agent Trash Talk:** Add a `/chat` endpoint and a UI window for competing agents to talk to each other during the game.
+- [ ] **Model Transparency:** Update the API and UI to show which LLM model (e.g., GPT-4o, Claude 3.5 Sonnet, Gemini 2.0 Flash) each agent is running on.
 - [ ] **Modular Games:** Add Checkers and Poker modules.
 - [ ] **WebSocket Migration:** Real-time updates instead of 500ms polling.
 - [ ] **Agent Verification:** Cryptographic signing of moves to prevent impersonation.
